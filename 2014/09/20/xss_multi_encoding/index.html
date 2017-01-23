@@ -1,0 +1,83 @@
+<!DOCTYPE html><html lang="en"><head><meta http-equiv="content-type" content="text/html; charset=utf-8"><meta content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=0" name="viewport"><meta content="yes" name="apple-mobile-web-app-capable"><meta content="black-translucent" name="apple-mobile-web-app-status-bar-style"><meta content="telephone=no" name="format-detection"><meta name="description"><title>XSS攻防中的复合编码问题 | Fr1day's Blog</title><link rel="stylesheet" type="text/css" href="//cdn.bootcss.com/normalize/5.0.0/normalize.min.css"><link rel="stylesheet" type="text/css" href="//cdn.bootcss.com/pure/0.6.0/pure-min.css"><link rel="stylesheet" type="text/css" href="//cdn.bootcss.com/pure/0.6.0/grids-responsive-min.css"><link rel="stylesheet" type="text/css" href="/css/style.css?v=0.0.0"><link rel="stylesheet" href="//cdn.bootcss.com/font-awesome/4.7.0/css/font-awesome.min.css"><script type="text/javascript" src="//cdn.bootcss.com/jquery/3.1.1/jquery.min.js"></script><link rel="Shortcut Icon" type="image/x-icon" href="/favicon.ico"><link rel="apple-touch-icon" href="/apple-touch-icon.png"><link rel="apple-touch-icon-precomposed" href="/apple-touch-icon.png"></head><body><div class="body_container"><div id="header"><div class="site-name"><h1 class="hidden">XSS攻防中的复合编码问题</h1><a id="logo" href="/.">Fr1day's Blog</a><p class="description"></p></div><div id="nav-menu"><a href="/archives/"><i class="fa fa-archive"> Archive</i></a></div></div><div id="layout" class="pure-g"><div class="pure-u-1 pure-u-md-3-4"><div class="content_container"><div class="post"><h1 class="post-title">XSS攻防中的复合编码问题</h1><div class="post-meta">Sep 20, 2014<script src="https://dn-lbstatics.qbox.me/busuanzi/2.3/busuanzi.pure.mini.js" async></script><span id="busuanzi_container_page_pv"> | <span id="busuanzi_value_page_pv"></span><span> Hits</span></span></div><div class="post-content"><h1 id="0x00-起"><a href="#0x00-起" class="headerlink" title="0x00 起"></a>0x00 起</h1><p>最近一直在研究XSS的攻防，特别是dom xss，问题慢慢的迁移到浏览器编码解码顺序上去。</p>
+<p>今儿被人放鸽子，无奈在KFC看了两个小时的资料，突然有种豁然开朗的感觉。</p>
+<p>参考资料先贴出来：</p>
+<ol>
+<li><p><a href="http://www.freebuf.com/articles/web/43285.html" target="_blank" rel="external">http://www.freebuf.com/articles/web/43285.html</a></p>
+</li>
+<li><p><a href="http://www.freebuf.com/articles/web/10121.html" target="_blank" rel="external">http://www.freebuf.com/articles/web/10121.html</a></p>
+</li>
+<li><p><a href="http://www.wooyun.org/whitehats/%E5%BF%83%E4%BC%A4%E7%9A%84%E7%98%A6%E5%AD%90" target="_blank" rel="external">http://www.wooyun.org/whitehats/%E5%BF%83%E4%BC%A4%E7%9A%84%E7%98%A6%E5%AD%90</a></p>
+</li>
+<li><p>道哥：白帽子讲Web安全</p>
+</li>
+<li><p>编码转换工具：<a href="http://app.baidu.com/app/enter?appid=280383" target="_blank" rel="external">http://app.baidu.com/app/enter?appid=280383</a></p>
+</li>
+</ol>
+<h1 id="0x10-几种编码"><a href="#0x10-几种编码" class="headerlink" title="0x10 几种编码"></a>0x10 几种编码</h1><p>通常在XSS防御中，输出在HTML标签中或HTML属性中的情况最为常见，浏览器也只会进行HTML解码，只需要对输出进行HTML编码就可以解决XSS问题。但如果涉及输出在脚本或者URL中的时候就要进行其他方式的编码。本文的重点就是研究在复杂环境中输出变量的编码问题。</p>
+<h2 id="HTML编码"><a href="#HTML编码" class="headerlink" title="HTML编码"></a>HTML编码</h2><p>在呈现HTML页面时,有时候需要显示一些特殊的字符,例如<code>&lt;</code>和<code>&amp;</code>,因为它们是HTML专用字符，需要通过一定的方式来实现，HTML编码由此诞生。HTML编码只是一种函数体现，用于将字符转换成HTML实体。例如想要显示<code>&lt;script&gt;</code>，在代码中需要写成<code>&amp;lt;script&amp;gt;</code>。为了防止XSS，至少要转换以下字符：</p>
+<table>
+<thead>
+<tr>
+<th>字符</th>
+<th>HTML实体</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>&lt;</code></td>
+<td><code>&amp;lt;</code></td>
+</tr>
+<tr>
+<td><code>&gt;</code></td>
+<td><code>&amp;gt;</code></td>
+</tr>
+<tr>
+<td><code>&#39;</code></td>
+<td><code>&amp;#039;</code></td>
+</tr>
+<tr>
+<td><code>&quot;</code></td>
+<td><code>&amp;quot;</code></td>
+</tr>
+<tr>
+<td><code>&amp;</code></td>
+<td><code>&amp;amp;</code></td>
+</tr>
+</tbody>
+</table>
+<p>同时字符编码也是实现HTML编码的一种形式。十进制、十六进制ASCII码或unicode字符编码，样式为“&amp;#数值;”。例如想要显示<code>&lt;script&gt;</code>，在代码中可以写成<code>&amp;#x003c;script&amp;#x003e;</code>或者<code>&amp;#60;script&amp;#62;</code>。</p>
+<h2 id="Javascript编码"><a href="#Javascript编码" class="headerlink" title="Javascript编码"></a>Javascript编码</h2><p>JavascriptEncode可以采用跟HtmlEncode不同的编码方式，即使用“\”对特殊字符进行转义。也可以转换成对应的字符编码。js提供了四种字符编码的策略：</p>
+<ul>
+<li>三个八进制数字，如果不够个数，前面补0，例如“e”编码为“\145”</li>
+<li>两个十六进制数字，如果不够个数，前面补0，例如“e”编码为“\x65”</li>
+<li>四个十六进制数字，如果不够个数，前面补0，例如“e”编码为“\u0065”</li>
+<li>对于一些控制字符，使用特殊的C类型的转义风格（例如\n和\r）</li>
+</ul>
+<h2 id="URL编码"><a href="#URL编码" class="headerlink" title="URL编码"></a>URL编码</h2><p>Url参数字符串中使用<code>key=value</code>键值对这样的形式来传参，键值对之间以<code>&amp;</code>符号分隔，如<code>/s?q=abc&amp;ie=utf-8</code>。如果你的value字符串中包含了<code>=</code>或者<code>&amp;</code>，那么势必会造成接收Url的服务器解析错误，因此必须将引起歧义的&amp;和=符号进行转义，也就是对其进行编码。字符编码方式为：%号后面加上字符的十六进制来替换这些有冲突的字符,例如将空格替换为<code>%20</code>。</p>
+<h1 id="0x20-浏览器解析原理"><a href="#0x20-浏览器解析原理" class="headerlink" title="0x20 浏览器解析原理"></a>0x20 浏览器解析原理</h1><p>浏览器在接收到一个HTML文件时，会从头开始对文档进行解析。遇到javascript时，会调用javascript解析器进行解析。遇到类似Onclick等需要触发才会执行的代码会跳过，事件被触发时才会被解析。</p>
+<h2 id="case-1"><a href="#case-1" class="headerlink" title="case 1"></a>case 1</h2><figure class="highlight html"><table><tr><td class="gutter"><pre><div class="line">1</div></pre></td><td class="code"><pre><div class="line"><span class="tag">&lt;<span class="name">a</span> <span class="attr">href</span>=<span class="string">"#"</span> <span class="attr">onclick</span>=<span class="string">"&#123;$value&#125;"</span>&gt;</span>天气不错<span class="tag">&lt;/<span class="name">a</span>&gt;</span></div></pre></td></tr></table></figure>
+<p>浏览器解析时，onclick中的内容被当做HTML来解析。在点击链接之后，调用javascript解析器来解析<code>$value</code>。</p>
+<p>所以解码的顺序：HTML解码-&gt;JavaScript解码。</p>
+<p>所以正确的防御对策为：JavaScript编码-&gt;HTML编码。</p>
+<h2 id="case-2"><a href="#case-2" class="headerlink" title="case 2"></a>case 2</h2><figure class="highlight html"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div><div class="line">3</div><div class="line">4</div></pre></td><td class="code"><pre><div class="line"><span class="tag">&lt;<span class="name">div</span> <span class="attr">id</span>=<span class="string">"bb"</span>&gt;</span><span class="tag">&lt;/<span class="name">div</span>&gt;</span></div><div class="line"><span class="tag">&lt;<span class="name">script</span>&gt;</span><span class="undefined"></span></div><div class="line">　　document.getElementById('bb').innerHTML="&#123;$value&#125;";</div><div class="line"><span class="tag">&lt;/<span class="name">script</span>&gt;</span></div></pre></td></tr></table></figure>
+<p>浏览器解析时，$value位于JavaScript中，先被Javascript解码。后$value被赋值到HTML中，进行HTML解码。</p>
+<p>所以解码顺序为：JavaScript解码-&gt;HTML解码</p>
+<p>所以正确的防御对策为:HTML编码-&gt;JavaScript编码</p>
+<h2 id="case-3"><a href="#case-3" class="headerlink" title="case 3"></a>case 3</h2><figure class="highlight html"><table><tr><td class="gutter"><pre><div class="line">1</div></pre></td><td class="code"><pre><div class="line"><span class="tag">&lt;<span class="name">td</span> <span class="attr">onclick</span>=<span class="string">"openUrl(add.do?userName='&#123;$value&#125;');"</span>&gt;</span>11<span class="tag">&lt;/<span class="name">td</span>&gt;</span></div></pre></td></tr></table></figure>
+<p>浏览器解析时，$value位于Javascript中，但由于是在onclick中，所以先以HTML的身份被解码。被点击之后，先被JavaScript解码。由于$value还是URL的一部分，所以还会被URL解码。</p>
+<p>所以解码顺序为：HTML解码-&gt;JavaScript解码-&gt;URL解码</p>
+<p>所以正确的防御对策为：URL编码-&gt;JavaScript编码-&gt;HTML编码</p>
+<h1 id="0x30-补充"><a href="#0x30-补充" class="headerlink" title="0x30 补充"></a>0x30 补充</h1><p>思路来源于：<a href="http://escape.alf.nu/3/。" target="_blank" rel="external">http://escape.alf.nu/3/。</a></p>
+<h2 id="html解码的问题"><a href="#html解码的问题" class="headerlink" title="html解码的问题"></a>html解码的问题</h2><p>通过appendChild添加的节点，不会被HTML解码，示例代码如下：</p>
+<figure class="highlight html"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div><div class="line">3</div><div class="line">4</div><div class="line">5</div><div class="line">6</div><div class="line">7</div><div class="line">8</div><div class="line">9</div><div class="line">10</div><div class="line">11</div><div class="line">12</div><div class="line">13</div><div class="line">14</div></pre></td><td class="code"><pre><div class="line"><span class="tag">&lt;<span class="name">body</span>&gt;</span>test<span class="tag">&lt;/<span class="name">body</span>&gt;</span></div><div class="line"><span class="tag">&lt;<span class="name">script</span> <span class="attr">type</span>=<span class="string">"text/javascript"</span>&gt;</span><span class="undefined"></span></div><div class="line">function escape(s) &#123;</div><div class="line">  var url = 'javascript:console.log(' + JSON.stringify(s) + ')';</div><div class="line">  console.log(url);</div><div class="line"></div><div class="line">  var a = document.createElement('a');</div><div class="line">  a.href = url;</div><div class="line">  a.setAttribute("test", "&amp;gt;2333")</div><div class="line">  document.body.appendChild(a);</div><div class="line">&#125;</div><div class="line">s = "&amp;gt;);alert(1)//";</div><div class="line">escape(s);</div><div class="line"><span class="tag">&lt;/<span class="name">script</span>&gt;</span></div></pre></td></tr></table></figure>
+<p><img src="http://ok8ftn6n6.bkt.clouddn.com//567670-20160829173016996-1405201332.png" alt=""></p>
+<p>只有通过innerHTML插入页面的代码才会被HTML解析。</p>
+<figure class="highlight html"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div><div class="line">3</div><div class="line">4</div></pre></td><td class="code"><pre><div class="line"><span class="tag">&lt;<span class="name">script</span> <span class="attr">type</span>=<span class="string">"text/javascript"</span>&gt;</span><span class="xml"></span></div><div class="line">    s = '<span class="tag">&lt;<span class="name">a</span> <span class="attr">href</span>=<span class="string">"&amp;gt;"</span>&gt;</span>test<span class="tag">&lt;/<span class="name">a</span>&gt;</span>'</div><div class="line">    document.body.innerHTML = s;</div><div class="line"><span class="tag">&lt;/<span class="name">script</span>&gt;</span></div></pre></td></tr></table></figure>
+<p>解析后为：</p>
+<p><img src="http://ok8ftn6n6.bkt.clouddn.com//567670-20160829173741168-107938721.png" alt=""></p>
+<h2 id="URL解码的问题"><a href="#URL解码的问题" class="headerlink" title="URL解码的问题"></a>URL解码的问题</h2><p>URL解码发生在点击链接的时候。示例如下：</p>
+<p><img src="http://ok8ftn6n6.bkt.clouddn.com//567670-20160829175600230-2072985107.png" alt=""></p>
+<p>在触发点击事件的时候，先进行URL解码，发现javascript伪协议之后，对内容进行JS解析执行。</p>
+<h1 id="0x40-End"><a href="#0x40-End" class="headerlink" title="0x40 End"></a>0x40 End</h1><p>在编码不合理的情况下的绕过方法在参考资料里写的很清楚啦，这篇文章只是整理一下思路。</p>
+<p>这几天尝试着去挖挖漏洞好啦~</p>
+</div><script type="text/javascript" src="/js/share.js?v=0.0.0" async></script><a data-url="http://yoursite.com/2014/09/20/xss_multi_encoding/" data-id="ciya1armz000h789xqcyktxwl" class="article-share-link">Share</a><div class="tags"><a href="/tags/XSS/">XSS</a></div><div class="post-nav"><a href="/2015/02/11/linux_iptables_note/" class="pre">Linux私房菜——防火墙部分笔记</a></div></div></div></div><div class="pure-u-1-4 hidden_mid_and_down"><div id="sidebar"><div class="widget"><div class="widget-title"><i class="fa fa-folder-o"> Categories</i></div></div><div class="widget"><div class="widget-title"><i class="fa fa-star-o"> Tags</i></div><div class="tagcloud"><a href="/tags/tools-python/" style="font-size: 15px;">tools,python</a> <a href="/tags/xss/" style="font-size: 15px;">xss</a> <a href="/tags/Linux/" style="font-size: 15px;">Linux</a> <a href="/tags/php审计-php/" style="font-size: 15px;">php审计,php</a> <a href="/tags/python/" style="font-size: 15px;">python</a> <a href="/tags/sql/" style="font-size: 15px;">sql</a> <a href="/tags/thinkphp/" style="font-size: 15px;">thinkphp</a> <a href="/tags/XSS/" style="font-size: 15px;">XSS</a> <a href="/tags/crawler-filter/" style="font-size: 15px;">crawler, filter</a></div></div><div class="widget"><div class="widget-title"><i class="fa fa-file-o"> Recent</i></div><ul class="post-list"><li class="post-list-item"><a class="post-list-link" href="/2017/01/10/crawler_and_filter/">浅谈动态爬虫与去重</a></li><li class="post-list-item"><a class="post-list-link" href="/2016/09/07/XSS_Tricks_从self-XSS到上了你的百度/">XSS Tricks:从self-XSS到上了你的百度</a></li><li class="post-list-item"><a class="post-list-link" href="/2016/07/05/xss_scan/">XSS动态检测</a></li><li class="post-list-item"><a class="post-list-link" href="/2016/06/10/bypass_xss_auditor_using_bad_php_code/">绕过XSS过滤器：利用错误编写的PHP代码</a></li><li class="post-list-item"><a class="post-list-link" href="/2015/10/13/php_audit_is_numeric/">危险的is_numeric——PHPYun 2015-06-26 二次注入漏洞分析</a></li><li class="post-list-item"><a class="post-list-link" href="/2015/09/22/WVS_Patcher/">WVS_Patcher</a></li><li class="post-list-item"><a class="post-list-link" href="/2015/09/05/python_weak_pass_scaner/">基于Python+协程+多进程的通用弱密码扫描器</a></li><li class="post-list-item"><a class="post-list-link" href="/2015/06/16/xss_firewall/">XSS前端防火墙</a></li><li class="post-list-item"><a class="post-list-link" href="/2015/06/04/python_http_put/">HTTP - PUT 上传文件/Shell</a></li><li class="post-list-item"><a class="post-list-link" href="/2015/04/11/sql_injection_by_hand/">手工SQL注入详解</a></li></ul></div><div class="widget"><div class="widget-title"><i class="fa fa-external-link"> Blogroll</i></div></div></div></div><div class="pure-u-1 pure-u-md-3-4"><div id="footer">© <a href="/." rel="nofollow">Fr1day's Blog.</a> Powered by<a rel="nofollow" target="_blank" href="https://hexo.io"> Hexo.</a><a rel="nofollow" target="_blank" href="https://github.com/tufu9441/maupassant-hexo"> Theme</a> by<a rel="nofollow" target="_blank" href="https://github.com/pagecho"> Cho.</a></div></div></div><a id="rocket" href="#top" class="show"></a><script type="text/javascript" src="/js/totop.js?v=0.0.0" async></script><script type="text/javascript" src="//cdn.bootcss.com/fancybox/2.1.5/jquery.fancybox.pack.js" async></script><script type="text/javascript" src="/js/fancybox.js?v=0.0.0" async></script><link rel="stylesheet" type="text/css" href="/css/jquery.fancybox.css?v=0.0.0"><script type="text/javascript" src="/js/codeblock-resizer.js?v=0.0.0"></script><script type="text/javascript" src="/js/smartresize.js?v=0.0.0"></script></div></body></html>
